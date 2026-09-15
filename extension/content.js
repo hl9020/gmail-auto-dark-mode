@@ -82,6 +82,14 @@
     /gstatic\.com\/(?:ui\/v1\/icons|images\/icons)\/[^"')]*_(?:nv\d{3}|p900|black|grey\d{3}|gm_grey)_/;
 
   /**
+   * The input tools sprite sheet carries no color token in its name, so the rule above
+   * cannot classify it, but it is measurably greyscale: of 11667 opaque pixels in
+   * ita_sprite8.png not one has a channel spread above 30, and the mean is rgb(89, 89, 89).
+   * It backs the keyboard glyphs in the input language menu, ten elements on a loaded page.
+   */
+  const GREYSCALE_SPRITE_URL = /gstatic\.com\/inputtools\/images\//;
+
+  /**
    * CSS that restores original colors on media and a handful of specific Gmail UI
    * elements after the page-wide dark filter has inverted everything.
    *
@@ -299,6 +307,7 @@
     const tag = el.tagName.toLowerCase();
     if (TEXT_ENTRY_TAG.test(tag)) return true;
     if (PLACEHOLDER_BG_URL.test(bg)) return true;
+    if (GREYSCALE_SPRITE_URL.test(bg)) return true;
     if (!MONOCHROME_UI_ICON_URL.test(bg)) return false;
     return tag !== 'img' || carriesNoImageOfItsOwn(el);
   };
