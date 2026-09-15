@@ -61,6 +61,23 @@
     'saturate(0.909091) contrast(1.176471) brightness(0.833333) hue-rotate(180deg) invert(1)';
 
   /**
+   * Google serves Gmail's UI glyphs (checkboxes, toolbar icons, chevrons) as monochrome
+   * PNG sprites under gstatic icon paths. They are authored for a light background — the
+   * list checkbox sprite averages rgb(68, 71, 70) — so counter-inverting them keeps them
+   * dark on a dark surface. Measured against the dark background that leaves 1.49:1, and
+   * only 1.13:1 while Gmail additionally dims the resting checkbox via .oZ-jc's
+   * opacity: 0.32, which is why the checkmarks are effectively invisible. Letting the
+   * page-wide invert do its job instead yields 7.12:1.
+   *
+   * Swapping in a light asset is not an option: the nv100/nv200/nv300/nv600/white
+   * variants of those sprite URLs all 404.
+   *
+   * Real imagery (avatars, inline photos from googleusercontent.com) is unaffected and
+   * still gets counter-inverted.
+   */
+  const MONOCHROME_UI_ICON_URL = /gstatic\.com\/(?:ui\/v1\/icons|images\/icons)\//;
+
+  /**
    * CSS that restores original colors on media and a handful of specific Gmail UI
    * elements after the page-wide dark filter has inverted everything.
    *
@@ -78,8 +95,13 @@
        and anything we tag with .auto-dark-counter-invert at runtime.
        The url() match also requires "background" in the style to avoid matching
        cursor: url(...), which Gmail sets on <body> during drag & drop (matching it
-       would flip the whole page back to light). */
-    img, video, canvas, [style*="background-image"], [style*="background"][style*="url("], svg,
+       would flip the whole page back to light).
+       Monochrome gstatic UI sprites are excluded here for the same reason they are skipped
+       in counterInvertDynamicBackgrounds — see MONOCHROME_UI_ICON_URL. */
+    img, video, canvas,
+    [style*="background-image"]:not([style*="gstatic.com/ui/v1/icons"]):not([style*="gstatic.com/images/icons"]),
+    [style*="background"][style*="url("]:not([style*="gstatic.com/ui/v1/icons"]):not([style*="gstatic.com/images/icons"]),
+    svg,
     .qj, .at, .ahR, .auto-dark-counter-invert {
       filter: ${RESTORE_FILTER} !important;
     }
@@ -183,7 +205,7 @@
       if (el.classList.contains('auto-dark-counter-invert')) return;
       try {
         const bg = el.style.backgroundImage || view.getComputedStyle(el).backgroundImage;
-        if (bg && bg !== 'none' && bg.includes('url(')) {
+        if (bg && bg !== 'none' && bg.includes('url(') && !MONOCHROME_UI_ICON_URL.test(bg)) {
           el.classList.add('auto-dark-counter-invert');
         }
       } catch (e) {
