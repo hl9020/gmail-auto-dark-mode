@@ -71,10 +71,15 @@
    * A light asset would be the obvious alternative, but the nv100/nv200/nv300/nv600/white
    * variants of those sprite URLs all 404.
    *
-   * Avatars and inline photos from googleusercontent.com do not match, so they keep the
-   * counter-inversion they need.
+   * The path alone is not enough to tell them apart, because colored artwork lives there
+   * too. Google encodes the tone in the file name, so the match is restricted to the
+   * single-dark-color tokens: 27 sprites on a loaded inbox carry nv700, a handful carry
+   * black, grey600, gm_grey or p900, and label_important_fill_googyellow500 is colored and
+   * has to keep its counter-inversion. Unknown tokens fall through to previous behavior,
+   * as do avatars and inline photos from googleusercontent.com.
    */
-  const MONOCHROME_UI_ICON_URL = /gstatic\.com\/(?:ui\/v1\/icons|images\/icons)\//;
+  const MONOCHROME_UI_ICON_URL =
+    /gstatic\.com\/(?:ui\/v1\/icons|images\/icons)\/[^"')]*_(?:nv\d{3}|p900|black|grey\d{3}|gm_grey)_/;
 
   /**
    * CSS that restores original colors on media and a handful of specific Gmail UI
@@ -106,7 +111,7 @@
       filter: ${RESTORE_FILTER} !important;
     }
     /* Attachment chips / preview tiles that Gmail also dims via opacity — restore that too. */
-    .T-KT.T-KT-CE, .pH.yX, .WA.xY, .pH.a9q {
+    :is(.T-KT.T-KT-CE, .pH.yX, .WA.xY, .pH.a9q):not(.auto-dark-keep-inverted) {
       filter: ${RESTORE_FILTER} !important;
       opacity: 1 !important;
     }
