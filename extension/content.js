@@ -278,6 +278,21 @@
   };
 
   /**
+   * A 1x1 transparent spacer GIF is not artwork. Gmail sets one as the background image of
+   * the search input, and counter-inverting on that basis turned the typed query dark on a
+   * dark field while the autocomplete suffix, which lives in a separate element, stayed
+   * light. Form fields are exempt for the same reason: their text matters, and a background
+   * image on them is decoration at most.
+   */
+  const PLACEHOLDER_BG_URL = /data:image\/gif;base64,R0lGODlhAQABA/;
+  const TEXT_ENTRY_TAG = /^(?:input|textarea|select)$/;
+
+  const keepsItsOwnColors = (el, bg) =>
+    MONOCHROME_UI_ICON_URL.test(bg) ||
+    PLACEHOLDER_BG_URL.test(bg) ||
+    TEXT_ENTRY_TAG.test(el.tagName.toLowerCase());
+
+  /**
    * Dynamically finds any element with a computed background-image (e.g. set via a CSS class)
    * and tags it: monochrome gstatic sprites get the exemption, everything else gets the
    * counter-inversion.
@@ -290,7 +305,7 @@
       try {
         const bg = el.style.backgroundImage || view.getComputedStyle(el).backgroundImage;
         if (!bg || bg === 'none' || !bg.includes('url(')) return;
-        el.classList.add(MONOCHROME_UI_ICON_URL.test(bg) ? 'auto-dark-keep-inverted' : 'auto-dark-counter-invert');
+        el.classList.add(keepsItsOwnColors(el, bg) ? 'auto-dark-keep-inverted' : 'auto-dark-counter-invert');
       } catch (e) {
         // Ignore stylesheet security or cross-origin access errors
       }
