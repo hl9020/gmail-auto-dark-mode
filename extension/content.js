@@ -61,19 +61,18 @@
     'saturate(0.909091) contrast(1.176471) brightness(0.833333) hue-rotate(180deg) invert(1)';
 
   /**
-   * Google serves Gmail's UI glyphs (checkboxes, toolbar icons, chevrons) as monochrome
-   * PNG sprites under gstatic icon paths. They are authored for a light background — the
-   * list checkbox sprite averages rgb(68, 71, 70) — so counter-inverting them keeps them
-   * dark on a dark surface. Measured against the dark background that leaves 1.49:1, and
-   * only 1.13:1 while Gmail additionally dims the resting checkbox via .oZ-jc's
-   * opacity: 0.32, which is why the checkmarks are effectively invisible. Letting the
-   * page-wide invert do its job instead yields 7.12:1.
+   * Gmail's UI glyphs (checkboxes, toolbar icons, chevrons) are monochrome PNG sprites
+   * served from gstatic icon paths. They are drawn for a light background, so
+   * counter-inverting them keeps them dark on a dark surface. The list checkbox sprite
+   * averages rgb(68, 71, 70), which leaves 1.49:1 against the dark background, and only
+   * 1.13:1 while .oZ-jc dims the resting checkbox to opacity 0.32. Letting the page-wide
+   * invert handle them instead gives 7.12:1.
    *
-   * Swapping in a light asset is not an option: the nv100/nv200/nv300/nv600/white
+   * A light asset would be the obvious alternative, but the nv100/nv200/nv300/nv600/white
    * variants of those sprite URLs all 404.
    *
-   * Real imagery (avatars, inline photos from googleusercontent.com) is unaffected and
-   * still gets counter-inverted.
+   * Avatars and inline photos from googleusercontent.com do not match, so they keep the
+   * counter-inversion they need.
    */
   const MONOCHROME_UI_ICON_URL = /gstatic\.com\/(?:ui\/v1\/icons|images\/icons)\//;
 
@@ -96,12 +95,12 @@
        The url() match also requires "background" in the style to avoid matching
        cursor: url(...), which Gmail sets on <body> during drag & drop (matching it
        would flip the whole page back to light).
-       Monochrome gstatic UI sprites are excluded here for the same reason they are skipped
-       in counterInvertDynamicBackgrounds — see MONOCHROME_UI_ICON_URL. */
+       Monochrome gstatic sprites are excluded for the same reason they are skipped in
+       counterInvertDynamicBackgrounds, see MONOCHROME_UI_ICON_URL. */
     img, video, canvas,
     [style*="background-image"]:not([style*="gstatic.com/ui/v1/icons"]):not([style*="gstatic.com/images/icons"]),
     [style*="background"][style*="url("]:not([style*="gstatic.com/ui/v1/icons"]):not([style*="gstatic.com/images/icons"]),
-    svg,
+    svg:not(.auto-dark-keep-inverted),
     .qj, .at, .ahR, .auto-dark-counter-invert {
       filter: ${RESTORE_FILTER} !important;
     }
@@ -119,7 +118,12 @@
    */
   const TOP_FRAME_CSS = `
     :root {
-      color-scheme: dark !important;
+      /* Light on purpose, not dark. The page-wide invert below is the only source of
+         darkness. Declaring dark makes Gmail's Material components render themselves dark,
+         and the filter then inverts that a second time. Disabled buttons come out as light
+         blocks on a dark page and their label drops to 1.29:1, against 1.98:1 with light.
+         Scrollbars and native form controls behave the same way. */
+      color-scheme: light !important;
     }
     html {
       /* Softer dark: high brightness lifts blacks to grays, lower contrast reduces the "void" feel. */
@@ -195,6 +199,72 @@
   };
 
   /**
+   * Most of Gmail's chrome (help, settings, navigation, toolbar) is inline SVG filled with
+   * one dark tone, rgb(68, 71, 70), the same color as the PNG sprites. Counter-inverting it
+   * leaves those icons dark on a dark surface, so they get tagged here and excluded from
+   * the svg rule in COUNTER_INVERT_CSS.
+   *
+   * Multi-color and gradient artwork fails this test and keeps its counter-inversion. That
+   * covers the account avatar, the Gemini mark and product logos. The check is strict on
+   * purpose: one opaque color across every fill and stroke, dark enough that inverting it
+   * lands on a light tone. Anything ambiguous falls back to the previous behavior.
+   */
+  const RGB_PARTS = /[\d.]+/g;
+
+  const parsePaint = (value) => {
+    if (!value || value === 'none' || value.includes('url(')) return null;
+    const parts = value.match(RGB_PARTS);
+    if (!parts) return null;
+    const alpha = parts[3] !== undefined ? Number(parts[3]) : 1;
+    if (alpha < 0.05) return null;
+    return parts.slice(0, 3).map(Number);
+  };
+
+  const relativeLuminance = ([r, g, b]) => {
+    const [rs, gs, bs] = [r, g, b].map(channel => {
+      const c = channel / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+  };
+
+  const isMonochromeDarkIcon = (svg, view) => {
+    if (svg.querySelector('linearGradient, radialGradient, image, pattern')) return false;
+    const nodes = [svg, ...svg.querySelectorAll('path, circle, rect, polygon, ellipse, line, polyline, g')];
+    const colors = [];
+    for (const node of nodes) {
+      const style = view.getComputedStyle(node);
+      for (const paint of [style.fill, style.stroke]) {
+        if (paint && paint.includes('url(')) return false;
+        const color = parsePaint(paint);
+        if (color) colors.push(color);
+      }
+    }
+    if (!colors.length) return false;
+    if (new Set(colors.map(c => c.join(','))).size > 1) return false;
+    return relativeLuminance(colors[0]) < 0.5;
+  };
+
+  /**
+   * Tags monochrome dark SVG icons once so the 500 ms interval does not re-measure the
+   * whole icon set on every tick.
+   */
+  const keepMonochromeIconsInverted = (doc = document) => {
+    const view = doc.defaultView || window;
+    doc.querySelectorAll('svg').forEach(svg => {
+      if (svg.dataset.autoDarkIconChecked) return;
+      try {
+        svg.dataset.autoDarkIconChecked = '1';
+        if (isMonochromeDarkIcon(svg, view)) {
+          svg.classList.add('auto-dark-keep-inverted');
+        }
+      } catch (e) {
+        // Ignore cross-origin or detached node errors
+      }
+    });
+  };
+
+  /**
    * Dynamically finds any element with a computed background-image (e.g. set via a CSS class)
    * and applies the counter-inversion class to it.
    */
@@ -234,6 +304,7 @@
           }
           // Scan and tag dynamic backgrounds inside this subframe
           counterInvertDynamicBackgrounds(doc);
+          keepMonochromeIconsInverted(doc);
         }
       } catch (e) {
         // Ignore cross-origin access errors (handled by direct matches injection)
@@ -262,6 +333,7 @@
 
     // Tag any elements whose background image is set via a CSS class so they get counter-inverted too.
     counterInvertDynamicBackgrounds();
+    keepMonochromeIconsInverted();
   };
 
   // Learn the dark state from an ancestor frame (see ancestorDark), apply it locally,
