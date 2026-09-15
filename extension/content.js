@@ -95,13 +95,14 @@
        The url() match also requires "background" in the style to avoid matching
        cursor: url(...), which Gmail sets on <body> during drag & drop (matching it
        would flip the whole page back to light).
-       Monochrome gstatic sprites are excluded for the same reason they are skipped in
-       counterInvertDynamicBackgrounds, see MONOCHROME_UI_ICON_URL. */
-    img, video, canvas,
-    [style*="background-image"]:not([style*="gstatic.com/ui/v1/icons"]):not([style*="gstatic.com/images/icons"]),
-    [style*="background"][style*="url("]:not([style*="gstatic.com/ui/v1/icons"]):not([style*="gstatic.com/images/icons"]),
-    svg:not(.auto-dark-keep-inverted),
-    .qj, .at, .ahR, .auto-dark-counter-invert {
+       Everything carrying .auto-dark-keep-inverted drops out again. Elements reach this rule
+       through four different paths (inline style, the svg tag, Gmail's own class names, and
+       the runtime tag), so the exemption sits on the whole block rather than on each path.
+       See MONOCHROME_UI_ICON_URL and isMonochromeDarkIcon for what earns it. */
+    :is(img, video, canvas,
+        [style*="background-image"], [style*="background"][style*="url("],
+        svg, .qj, .at, .ahR,
+        .auto-dark-counter-invert):not(.auto-dark-keep-inverted) {
       filter: ${RESTORE_FILTER} !important;
     }
     /* Attachment chips / preview tiles that Gmail also dims via opacity — restore that too. */
@@ -266,18 +267,18 @@
 
   /**
    * Dynamically finds any element with a computed background-image (e.g. set via a CSS class)
-   * and applies the counter-inversion class to it.
+   * and tags it: monochrome gstatic sprites get the exemption, everything else gets the
+   * counter-inversion.
    */
   const counterInvertDynamicBackgrounds = (doc = document) => {
     const view = doc.defaultView || window;
     const elements = doc.querySelectorAll('div, span, a, li, button, [style*="background"]');
     elements.forEach(el => {
-      if (el.classList.contains('auto-dark-counter-invert')) return;
+      if (el.classList.contains('auto-dark-counter-invert') || el.classList.contains('auto-dark-keep-inverted')) return;
       try {
         const bg = el.style.backgroundImage || view.getComputedStyle(el).backgroundImage;
-        if (bg && bg !== 'none' && bg.includes('url(') && !MONOCHROME_UI_ICON_URL.test(bg)) {
-          el.classList.add('auto-dark-counter-invert');
-        }
+        if (!bg || bg === 'none' || !bg.includes('url(')) return;
+        el.classList.add(MONOCHROME_UI_ICON_URL.test(bg) ? 'auto-dark-keep-inverted' : 'auto-dark-counter-invert');
       } catch (e) {
         // Ignore stylesheet security or cross-origin access errors
       }
