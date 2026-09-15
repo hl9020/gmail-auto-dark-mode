@@ -283,14 +283,25 @@
    * dark field while the autocomplete suffix, which lives in a separate element, stayed
    * light. Form fields are exempt for the same reason: their text matters, and a background
    * image on them is decoration at most.
+   *
+   * Gmail also builds icon buttons as an <img> pointing at cleardot.gif with the real glyph
+   * in background-image. All 35 such images on a loaded inbox are 1x1, so an img that small
+   * carries no artwork of its own and the background decides. The pagination chevrons are
+   * the visible case: the img rule matched them directly and the tagging never reached them,
+   * because it only walks div, span, a, li and button.
    */
   const PLACEHOLDER_BG_URL = /data:image\/gif;base64,R0lGODlhAQABA/;
   const TEXT_ENTRY_TAG = /^(?:input|textarea|select)$/;
 
-  const keepsItsOwnColors = (el, bg) =>
-    MONOCHROME_UI_ICON_URL.test(bg) ||
-    PLACEHOLDER_BG_URL.test(bg) ||
-    TEXT_ENTRY_TAG.test(el.tagName.toLowerCase());
+  const carriesNoImageOfItsOwn = (el) => el.naturalWidth <= 1 && el.naturalHeight <= 1;
+
+  const keepsItsOwnColors = (el, bg) => {
+    const tag = el.tagName.toLowerCase();
+    if (TEXT_ENTRY_TAG.test(tag)) return true;
+    if (PLACEHOLDER_BG_URL.test(bg)) return true;
+    if (!MONOCHROME_UI_ICON_URL.test(bg)) return false;
+    return tag !== 'img' || carriesNoImageOfItsOwn(el);
+  };
 
   /**
    * Dynamically finds any element with a computed background-image (e.g. set via a CSS class)
@@ -299,9 +310,12 @@
    */
   const counterInvertDynamicBackgrounds = (doc = document) => {
     const view = doc.defaultView || window;
-    const elements = doc.querySelectorAll('div, span, a, li, button, [style*="background"]');
+    const elements = doc.querySelectorAll('div, span, a, li, button, img, [style*="background"]');
     elements.forEach(el => {
       if (el.classList.contains('auto-dark-counter-invert') || el.classList.contains('auto-dark-keep-inverted')) return;
+      // An img that has not finished loading reports 0x0, which would look like a spacer.
+      // Skip it and let the next interval tick classify it.
+      if (el.tagName.toLowerCase() === 'img' && !el.complete) return;
       try {
         const bg = el.style.backgroundImage || view.getComputedStyle(el).backgroundImage;
         if (!bg || bg === 'none' || !bg.includes('url(')) return;
