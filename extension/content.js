@@ -209,6 +209,10 @@
    * covers the account avatar, the Gemini mark and product logos. The check is strict on
    * purpose: one opaque color across every fill and stroke, dark enough that inverting it
    * lands on a light tone. Anything ambiguous falls back to the previous behavior.
+   *
+   * An embedded <image> only disqualifies an icon when it actually has a source. The app
+   * launcher ships an empty 24x24 <image> placeholder next to its single dark path, and
+   * treating that as raster artwork left the grid dark.
    */
   const RGB_PARTS = /[\d.]+/g;
 
@@ -230,7 +234,10 @@
   };
 
   const isMonochromeDarkIcon = (svg, view) => {
-    if (svg.querySelector('linearGradient, radialGradient, image, pattern')) return false;
+    if (svg.querySelector('linearGradient, radialGradient, pattern')) return false;
+    for (const img of svg.querySelectorAll('image')) {
+      if ((img.getAttribute('href') || img.getAttribute('xlink:href') || '').trim()) return false;
+    }
     const nodes = [svg, ...svg.querySelectorAll('path, circle, rect, polygon, ellipse, line, polyline, g')];
     const colors = [];
     for (const node of nodes) {
